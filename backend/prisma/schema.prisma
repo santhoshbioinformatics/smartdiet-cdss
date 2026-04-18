@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────
+
+enum AllergySeverity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum AllergyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AllergySource {
+  PATIENT_REPORTED
+  PROVIDER_ENTERED
+  IMPORTED
+}
+
+enum AllergyCategory {
+  FOOD
+  MEDICATION
+  ENVIRONMENT
+  BIOLOGIC
+}
+
+// ─── Models ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("RN")
+  createdAt DateTime @default(now())
+
+  orders            DietOrder[]
+  auditLogs         AuditLog[]
+  recordedAllergies Allergy[]   @relation("AllergyRecordedBy")
+}
+
+model Patient {
+  id           String   @id @default(uuid())
+  mrn          String   @unique
+  name         String
+  age          Int
+  sex          String
+  weight       String
+  height       String
+  bmi          String
+  unit         String
+  attending    String
+  admitted     String
+  conditions   String[]
+  restrictions String[]
+  createdAt    DateTime @default(now())
+
+  orders    DietOrder[]
+  allergies Allergy[]
+}
+
+/// FHIR AllergyIntolerance-aligned model
+model Allergy {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  // Clinical data
+  substance          String           // e.g., "peanuts", "lactose", "penicillin"
+  reaction           String?          // e.g., "anaphylaxis", "rash", "GI distress"
+  severity           AllergySeverity  @default(MODERATE)
+  status             AllergyStatus    @default(ACTIVE)
+  source             AllergySource    @default(PROVIDER_ENTERED)
+  category           AllergyCategory  @default(FOOD)
+  notes              String?
+
+  // FHIR-ready fields
+  clinicalStatus     String           @default("active")       // active | inactive | resolved
+  verificationStatus String           @default("confirmed")    // unconfirmed | presumed | confirmed | refuted
+  code               String?          // SNOMED-CT or RxNorm code placeholder
+
+  // Provenance
+  recordedById       String
+  recordedBy         User             @relation("AllergyRecordedBy", fields: [recordedById], references: [id])
+  recordedAt         DateTime         @default(now())
+  lastUpdatedAt      DateTime         @updatedAt
+
+  @@index([patientId])
+  @@index([status])
+}
+
+model DietOrder {
+  id             String   @id @default(uuid())
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+
+  dietType             String
+  status               String   @default("active")
+  confidence           String?
+  overridden           Boolean  @default(false)
+  overrideReason       String?
+  alertsOverridden     String[] // alert IDs that were overridden
+  alertsAtTimeOfOrder  Json?    // snapshot of active alerts when order was placed
+
+  createdAt DateTime @default(now())
+
+  @@index([patientId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  type        String          // e.g., ALLERGY_ADDED, DIET_ORDER_PLACED, LOGIN
+  description String
+  status      String          // INFO, WARNING, CRITICAL
+  patientMrn  String?
+
+  // Enhanced tracking
+  entityType  String?         // e.g., "Allergy", "DietOrder", "Patient"
+  entityId    String?         // ID of the affected entity
+  beforeValue Json?           // state before change
+  afterValue  Json?           // state after change
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([patientMrn])
+  @@index([entityType])
+}
+
+model AlertSnooze {
+  id           String   @id @default(uuid())
+  alertId      String
+  userId       String
+  reason       String
+  snoozedUntil DateTime
+  createdAt    DateTime @default(now())
+}
