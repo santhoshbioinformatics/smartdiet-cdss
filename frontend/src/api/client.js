@@ -3,7 +3,7 @@ import axios from 'axios'
 const LOCAL_URL = "http://localhost:4000/api"
 const PROD_URL = "https://smartdiet-api-3atj.onrender.com/api"
 
-const api = axios.create({ baseURL:  PROD_URL})
+const api = axios.create({ baseURL:  LOCAL_URL})
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
